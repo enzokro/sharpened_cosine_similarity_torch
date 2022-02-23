@@ -101,7 +101,6 @@ def unfold2d(x, kernel_size:int, stride:int, padding:int):
         (in_c * h * w, h * w, stride * w, stride, w, 1))
     return strided_x
 
-import torch.nn.functional as F
 
 class SharpenedCosineSimilarity_ConvImpl(nn.Module):
     def __init__(
@@ -187,7 +186,7 @@ class SharpenedCosineSimilarity_ConvImpl(nn.Module):
         return sign * y
 
 
-class SharpenedCosineSimilarity_ConvImplAnnot(nn.Module):
+class SharpenedCosineSimilarityAnnotated(nn.Module):
     def __init__(
         self,
         in_channels=1,
@@ -197,7 +196,7 @@ class SharpenedCosineSimilarity_ConvImplAnnot(nn.Module):
         padding=0,
         eps=1e-12,
     ):
-        super(SharpenedCosineSimilarity_ConvImplAnnot, self).__init__()
+        super(SharpenedCosineSimilarityAnnotated, self).__init__()
 
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -211,42 +210,36 @@ class SharpenedCosineSimilarity_ConvImplAnnot(nn.Module):
         self.register_parameter("w", nn.Parameter(w))
         nn.init.xavier_uniform_(self.w)
 
-        # initialize learned channel-wise exponents
+        # initialize the learned channel-wise exponents
         self.p_scale = 10
         p_init = 2**.5 * self.p_scale
         self.register_parameter("p", nn.Parameter(torch.empty(out_channels)))
         nn.init.constant_(self.p, p_init)
 
-        # initialize learned noise threshold 
+        # initialize the learned noise threshold 
         # TODO: channel-wise threshold?
         self.q_scale = 100
         self.register_parameter("q", nn.Parameter(torch.empty(1)))
         nn.init.constant_(self.q, 10)
 
     def forward(self, x):
-        # reshaping for compatibility with the einsum-based implementation
-        w = self.w.reshape(
-            self.out_channels,
-            self.in_channels,
-            self.kernel_size,
-            self.kernel_size,
-        )
-        # find kernel norm
+
+        # get the kernel norm
         w_norm = torch.linalg.vector_norm(
-            w,
+            self.w,
             dim=(1, 2, 3),
             keepdim=True,
         )
 
-        # scaled noise threshold
+        # find the scaled noise threshold
         q_sqr = (self.q / self.q_scale) ** 2
 
         # normalize the convolutional kernel
-        w_normed = w / ((w_norm + self.eps) + q_sqr)
+        w_normed = self.w / ((w_norm + self.eps) + q_sqr)
 
         # find squared norm of x
         x_norm_squared = F.avg_pool2d(
-            x ** 2,
+            (x ** 2) + self.eps,
             kernel_size=self.kernel_size,
             stride=self.stride,
             padding=self.padding,
@@ -254,7 +247,7 @@ class SharpenedCosineSimilarity_ConvImplAnnot(nn.Module):
         ).sum(dim=1, keepdim=True)
 
 
-        # get convolution of input with normalized kernel
+        # convolve input with the normalized kernel
         y_denorm = F.conv2d(
             x,
             w_normed,
@@ -263,16 +256,17 @@ class SharpenedCosineSimilarity_ConvImplAnnot(nn.Module):
             padding=self.padding,
         )
 
-        # normalize convolution output to get cosine distances
-        y = y_denorm / ((x_norm_squared + self.eps).sqrt() + q_sqr)
+        # normalize convolution output to get cosine similarities
+        # y = y_denorm / ((x_norm_squared + self.eps).sqrt() + q_sqr)
+        y = y_denorm / ((x_norm_squared).sqrt() + q_sqr)
 
         # find sign to amplify positive/negative matches appropriately
         sign = torch.sign(y)
 
-        # get the stable absolute value 
-        y = torch.abs(y) + self.eps
+        # get the absolute value 
+        y = torch.abs(y) + self.eps # eps for stability
 
-        # sharpen the cosine similarities per-channel to highlight peaks and bury noise
+        # sharpen the cosine similarities per-channel to highlight matches and bury noise
         p_sqr = (self.p / self.p_scale) ** 2
         y = y.pow(p_sqr.reshape(1, -1, 1, 1))
 

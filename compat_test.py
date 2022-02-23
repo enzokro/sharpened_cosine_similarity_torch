@@ -50,8 +50,14 @@ def test_conv_and_annot():
     faster_output = faster(test_values)
     annotated_output = annotated(test_values)
 
-    print((orig_output - faster_output).abs().max().item())
-    print((orig_output - annotated_output).abs().max().item())
+    conv_delta = (orig_output - faster_output).abs().max()
+    annotated_delta = (orig_output - annotated_output).abs().max()
+
+    print(conv_delta.item())
+    print(annotated_delta.item())
+
+    # final sanity check
+    assert torch.allclose(conv_delta, annotated_delta)
 
 # run tests
 test()
