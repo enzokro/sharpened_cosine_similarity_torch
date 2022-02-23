@@ -253,17 +253,18 @@ class SharpenedCosineSimilarity_ConvImplAnnot(nn.Module):
             divisor_override=1, # we actually want sum_pool
         ).sum(dim=1, keepdim=True)
 
-        # normalize x
-        x_normed = x / (x_norm_squared + self.eps).sqrt() + q_sqr
 
-        # get normalized convolution
-        y = F.conv2d(
-            x_normed,
+        # get convolution of input with normalized kernel
+        y_denorm = F.conv2d(
+            x,
             w_normed,
             bias=None,
             stride=self.stride,
             padding=self.padding,
         )
+
+        # normalize convolution output to get cosine distances
+        y = y_denorm / ((x_norm_squared + self.eps).sqrt() + q_sqr)
 
         # find sign to amplify positive/negative matches appropriately
         sign = torch.sign(y)
@@ -275,5 +276,5 @@ class SharpenedCosineSimilarity_ConvImplAnnot(nn.Module):
         p_sqr = (self.p / self.p_scale) ** 2
         y = y.pow(p_sqr.reshape(1, -1, 1, 1))
 
-        # return 
+        # return sharpened cosine similarity
         return sign * y
