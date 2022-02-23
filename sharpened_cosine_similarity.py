@@ -239,7 +239,7 @@ class SharpenedCosineSimilarityAnnotated(nn.Module):
 
         # find squared norm of x
         x_norm_squared = F.avg_pool2d(
-            (x ** 2) + self.eps,
+            (x + self.eps) ** 2,
             kernel_size=self.kernel_size,
             stride=self.stride,
             padding=self.padding,
