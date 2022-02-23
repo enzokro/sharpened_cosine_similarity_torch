@@ -1,7 +1,7 @@
 import math
 import torch
 
-from sharpened_cosine_similarity import SharpenedCosineSimilarity, SharpenedCosineSimilarity_ConvImpl, SharpenedCosineSimilarity_ConvImplAnnot
+from sharpened_cosine_similarity import SharpenedCosineSimilarity, SharpenedCosineSimilarity_ConvImpl, SharpenedCosineSimilarityAnnotated
 
 def test():
     original = SharpenedCosineSimilarity(5, 5, 3)
@@ -25,7 +25,7 @@ def reshape_w(state_dict):
 
 def test_annot():
     original = SharpenedCosineSimilarity(5, 5, 3)
-    faster = SharpenedCosineSimilarity_ConvImplAnnot(5, 5, 3)
+    faster = SharpenedCosineSimilarityAnnotated(5, 5, 3)
     faster.load_state_dict(reshape_w(original.state_dict()))
 
     test_values = torch.randn(1, 5, 32, 32)
@@ -41,7 +41,7 @@ def test_conv_and_annot():
     faster = SharpenedCosineSimilarity_ConvImpl(5, 5, 3)
     faster.load_state_dict(original.state_dict())
     # load annoated conv implementation
-    annotated = SharpenedCosineSimilarity_ConvImplAnnot(5, 5, 3)
+    annotated = SharpenedCosineSimilarityAnnotated(5, 5, 3)
     annotated.load_state_dict(reshape_w(original.state_dict()))
 
     test_values = torch.randn(1, 5, 32, 32)
