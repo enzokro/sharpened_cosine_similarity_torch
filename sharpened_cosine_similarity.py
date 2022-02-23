@@ -185,3 +185,95 @@ class SharpenedCosineSimilarity_ConvImpl(nn.Module):
         p_sqr = (self.p / self.p_scale) ** 2
         y = y.pow(p_sqr.reshape(1, -1, 1, 1))
         return sign * y
+
+
+class SharpenedCosineSimilarity_ConvImplAnnot(nn.Module):
+    def __init__(
+        self,
+        in_channels=1,
+        out_channels=1,
+        kernel_size=1,
+        stride=1,
+        padding=0,
+        eps=1e-12,
+    ):
+        super(SharpenedCosineSimilarity_ConvImplAnnot, self).__init__()
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.eps = eps
+        self.padding = int(padding)
+
+        # initialize weight kernel for sharpened cosine similarity
+        w = torch.empty(out_channels, in_channels, kernel_size, kernel_size)
+        self.register_parameter("w", nn.Parameter(w))
+        nn.init.xavier_uniform_(self.w)
+
+        # initialize learned channel-wise exponents
+        self.p_scale = 10
+        p_init = 2**.5 * self.p_scale
+        self.register_parameter("p", nn.Parameter(torch.empty(out_channels)))
+        nn.init.constant_(self.p, p_init)
+
+        # initialize learned noise threshold 
+        # TODO: channel-wise threshold?
+        self.q_scale = 100
+        self.register_parameter("q", nn.Parameter(torch.empty(1)))
+        nn.init.constant_(self.q, 10)
+
+    def forward(self, x):
+        # reshaping for compatibility with the einsum-based implementation
+        w = self.w.reshape(
+            self.out_channels,
+            self.in_channels,
+            self.kernel_size,
+            self.kernel_size,
+        )
+        # find kernel norm
+        w_norm = torch.linalg.vector_norm(
+            w,
+            dim=(1, 2, 3),
+            keepdim=True,
+        )
+
+        # scaled noise threshold
+        q_sqr = (self.q / self.q_scale) ** 2
+
+        # normalize the convolutional kernel
+        w_normed = w / ((w_norm + self.eps) + q_sqr)
+
+        # find squared norm of x
+        x_norm_squared = F.avg_pool2d(
+            x ** 2,
+            kernel_size=self.kernel_size,
+            stride=self.stride,
+            padding=self.padding,
+            divisor_override=1, # we actually want sum_pool
+        ).sum(dim=1, keepdim=True)
+
+        # normalize x
+        x_normed = x / (x_norm_squared + self.eps).sqrt() + q_sqr
+
+        # get normalized convolution
+        y = F.conv2d(
+            x_normed,
+            w_normed,
+            bias=None,
+            stride=self.stride,
+            padding=self.padding,
+        )
+
+        # find sign to amplify positive/negative matches appropriately
+        sign = torch.sign(y)
+
+        # get the stable absolute value 
+        y = torch.abs(y) + self.eps
+
+        # sharpen the cosine similarities per-channel to highlight peaks and bury noise
+        p_sqr = (self.p / self.p_scale) ** 2
+        y = y.pow(p_sqr.reshape(1, -1, 1, 1))
+
+        # return 
+        return sign * y
